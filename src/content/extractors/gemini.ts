@@ -1,31 +1,49 @@
-import { Conversation, Message } from '../../shared/schema';
+import { Conversation, Message, ConversationSchema } from '../../shared/schema';
 
 export function isGemini(): boolean {
   return window.location.hostname === 'gemini.google.com';
 }
 
 export async function extractGemini(): Promise<Conversation> {
-  const container = document.querySelector('div[data-testid="conversation"]')
-    || document.querySelector('main')
-    || document.querySelector('conversation-container');
-    
-  if (!container) throw new Error('Could not find Gemini conversation');
-
-  // Gemini message selectors
-  const turns = container.querySelectorAll('[data-testid="conversation-turn"], [data-testid="user-query"], [data-testid="model-response"], conversation-turn');
+  // Strategy 1: data-testid based
+  let messageEls = Array.from(document.querySelectorAll(
+    '[data-testid="user-query"], [data-testid="model-response"]'
+  ));
   
+  // Strategy 2: role-based list items
+  if (messageEls.length === 0) {
+    messageEls = Array.from(document.querySelectorAll('div[role="listitem"]'))
+      .filter(el => el.querySelector('img, svg, .markdown, .prose'));
+  }
+  
+  // Strategy 3: broad fallback
+  if (messageEls.length === 0) {
+    const container = document.querySelector('main') || document.body;
+    messageEls = Array.from(container.querySelectorAll('div > div'))
+      .filter(el => {
+        const text = el.textContent || '';
+        return text.length > 20 && el.children.length > 0;
+      });
+  }
+
+  if (messageEls.length === 0) {
+    throw new Error('No Gemini messages found.');
+  }
+
   const messages: Message[] = [];
   
-  turns.forEach((turn, index) => {
-    const isUser = turn.getAttribute('data-testid') === 'user-query' 
-      || !!turn.querySelector('[data-testid="user-query"]')
-      || turn.tagName.toLowerCase() === 'user-query'
-      || turn.querySelector('user-query');
-      
+  messageEls.forEach((el, index) => {
+    const testId = el.getAttribute('data-testid');
+    const isUser = testId === 'user-query' 
+      || !!el.querySelector('img[alt*="user"], [aria-label*="You"]');
     const role = isUser ? 'user' : 'assistant';
     
-    const contentEl = turn.querySelector('.markdown, .prose, [class*="response-content"], [class*="message-content"]');
-    const content = contentEl?.textContent?.trim() || turn.textContent?.trim() || '';
+    const contentEl = el.querySelector('.markdown, .prose, [class*="content"]');
+    const content = contentEl?.textContent?.trim() 
+      || el.textContent?.trim() 
+      || '';
+    
+    if (!content || content.length < 2) return;
     
     messages.push({
       id: `msg-${index}`,
@@ -34,17 +52,25 @@ export async function extractGemini(): Promise<Conversation> {
     });
   });
 
-  const titleEl = document.querySelector('title');
-  const title = titleEl?.textContent?.replace(' - Gemini', '').trim();
+  const title = document.title.replace(' - Gemini', '').trim();
 
-  return {
-    version: '1.0',
+  const result = {
+    version: '1.0' as const,
     metadata: {
       source: 'gemini',
-      title,
+      title: title || undefined,
       url: window.location.href,
       exportedAt: new Date().toISOString(),
     },
     messages,
   };
+
+  // Validate
+  const parsed = ConversationSchema.safeParse(result);
+  if (!parsed.success) {
+    console.error('Schema validation failed:', parsed.error);
+    throw new Error('Extracted conversation failed validation. Site structure may have changed.');
+  }
+
+  return parsed.data;
 }

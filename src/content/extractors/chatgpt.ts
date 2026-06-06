@@ -1,4 +1,5 @@
-import { Conversation, Message } from '../../shared/schema';
+import { Conversation, Message, ConversationSchema } from '../../shared/schema';
+import { scrollToLoadAll } from './utils';
 
 export function isChatGPT(): boolean {
   return window.location.hostname === 'chatgpt.com';
@@ -10,6 +11,12 @@ export async function extractChatGPT(): Promise<Conversation> {
     || document.querySelector('main');
   
   if (!container) throw new Error('Could not find ChatGPT conversation container');
+
+  // Trigger auto-scroll on main element to lazy load all previous turns
+  const main = document.querySelector('main');
+  if (main) {
+    await scrollToLoadAll(main, '[data-testid^="conversation-turn-"]');
+  }
 
   // Get all message turns - try starts-with and standard selectors
   let turns = container.querySelectorAll('[data-testid^="conversation-turn-"]');
@@ -49,8 +56,8 @@ export async function extractChatGPT(): Promise<Conversation> {
   const titleEl = document.querySelector('title');
   const title = titleEl?.textContent?.replace(' - ChatGPT', '').trim();
 
-  return {
-    version: '1.0',
+  const result = {
+    version: '1.0' as const,
     metadata: {
       source: 'chatgpt',
       title,
@@ -59,6 +66,14 @@ export async function extractChatGPT(): Promise<Conversation> {
     },
     messages,
   };
+
+  const parsed = ConversationSchema.safeParse(result);
+  if (!parsed.success) {
+    console.error('Schema validation failed:', parsed.error);
+    throw new Error('Extracted conversation failed validation. Site structure may have changed.');
+  }
+
+  return parsed.data;
 }
 
 function waitForElement(selector: string, timeout = 5000): Promise<Element | null> {

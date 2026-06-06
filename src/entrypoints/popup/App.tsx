@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { browser } from 'wxt/browser';
 import { Conversation } from '../../shared/schema';
 
 function App() {
@@ -12,6 +13,20 @@ function App() {
     setErrorMsg('');
     
     try {
+      // Validate we're on a supported page
+      const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+      const url = tab?.url || '';
+      const supportedHosts = [
+        'chatgpt.com', 'claude.ai', 'gemini.google.com',
+        'chat.deepseek.com', 'perplexity.ai', 'copilot.microsoft.com',
+        'grok.x.ai', 'kimi.moonshot.cn'
+      ];
+      
+      const isSupported = supportedHosts.some(host => url.includes(host));
+      if (!isSupported) {
+        throw new Error('Please navigate to a supported AI chat page (ChatGPT, Claude, Gemini, etc.)');
+      }
+
       const response = await browser.runtime.sendMessage({
         type: 'EXPORT_CHAT',
         payload: { format },
